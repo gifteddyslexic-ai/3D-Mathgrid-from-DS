@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D MathGrid</title>
+    <style>
+        /* Place-value color tokens, in both hex and "r,g,b" form (the latter for
+           use inside rgba()). JS overwrites these when the saturation slider
+           moves, so every place that references them - slider readouts, digit
+           readouts, slider chrome, the title gradient - stays in sync with the
+           3D spheres themselves. Defaults here match the spheres' original,
+           fully-saturated colors so the page looks right before JS runs. */
+        :root {
+            --color-units: #ff5555;
+            --color-units-rgb: 255,85,85;
+            --color-tens: #ff7700;
+            --color-tens-rgb: 255,119,0;
+            --color-hundreds: #e0ab00;
+            --color-hundreds-rgb: 224,171,0;
+            --color-thousands: #00aa00;
+            --color-thousands-rgb: 0,170,0;
+            --color-ten-thousands: #0077ff;
+            --color-ten-thousands-rgb: 0,119,255;
+            --color-hundred-thousands: #aa00ff;
+            --color-hundred-thousands-rgb: 170,0,255;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #121230 50%, #0a0a1a 100%);
+            color: #fff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 10px;
+        }
+        
+        header {
+            position: relative;
+            text-align: center;
+            margin-bottom: 10px;
+            padding: 10px;
+        }
+        
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 5px;
+            color: #ffffff;
+        }
+        
+        .subtitle {
+            font-size: 1rem;
+            color: #aaa;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        
+        .app-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 10px;
+            height: calc(100vh - 180px);
+        }
+        
+        .canvas-container {
+            flex: 4;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+            position: relative;
+        }
+        
+        #scene-container {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .controls-sidebar {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            padding: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            border: 1px solid rgba(100, 100, 255, 0.1);
+            min-width: 280px;
+        }
+        
+        /* Wraps the Color Saturation slider where it now sits, at the very
+           bottom of the app below the canvas/sidebar row - centered and
+           width-matched to the mode tabs above so it still reads as one
+           top-level control, just relocated out of the way of the main
+           controls. */
+        .bottom-saturation-control {
+            max-width: 500px;
+            margin: 15px auto 0;
+        }
+
+        /* Switches the sidebar (and the 3D view) between the place-value
+           builder and the Add/Subtract demo - see switchMode() in the script.
+           Sits just under the page heading, above the canvas/sidebar row, so
+           it reads as a top-level mode switch rather than a sidebar control. */
+        .mode-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 0 auto 15px;
+            max-width: 500px;
+        }
+
+        .mode-tab {
+            flex: 1;
+            padding: 12px 16px;
+            border: 1px solid rgba(100, 100, 255, 0.15);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #aaa;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-align: center;
+        }
+
+        .mode-tab:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+
+        .mode-tab.active {
+            background: linear-gradient(135deg, rgba(78, 205, 196, 0.25), rgba(78, 205, 196, 0.08));
+            border-color: #4ecdc4;
+            color: #4ecdc4;
+        }
+
+        /* Wraps a mode tab together with its own Quiz toggle so the two sit
+           right next to each other in the top bar - see .mode-tabs' markup
+           comment for why each tab gets its own Quiz button now instead of
+           one living inside the Add & Subtract sidebar panel. */
+        .mode-tab-group {
+            flex: 1;
+            display: flex;
+            align-items: stretch;
+            gap: 6px;
+        }
+
+        .mode-tab-group .mode-tab {
+            flex: 1;
+        }
+
+        .mode-tab-group .op-icon-quiz {
+            width: 44px;
+            height: auto;
+            flex: 0 0 auto;
+        }
+
+        .control-section {
+            margin-bottom: 20px;
+        }
+        
+        .control-title {
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+            color: #ff6b6b;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .slider-container {
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            align-items: center;
+        }
+        
+        .slider-value {
+            color: #4ecdc4;
+            font-weight: bold;
+            font-size: 1rem;
+        }
+        
+        .slider {
+            width: 100%;
+            height: 10px;
+            -webkit-appearance: none;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            outline: none;
+            position: relative;
+        }
+        
+        /* Color-coded slider tracks - built from the CSS color tokens above, so
+           they stay in sync with the saturation slider and the 3D spheres.
+           0deg (bottom-to-top) since these six are now vertical. */
+        #single-slider {
+            background: linear-gradient(0deg, rgba(var(--color-units-rgb), 0.3), rgba(var(--color-units-rgb), 0.8));
+        }
+
+        #row-slider {
+            background: linear-gradient(0deg, rgba(var(--color-tens-rgb), 0.3), rgba(var(--color-tens-rgb), 0.8));
+        }
+
+        #level-slider {
+            background: linear-gradient(0deg, rgba(var(--color-hundreds-rgb), 0.3), rgba(var(--color-hundreds-rgb), 0.8));
+        }
+
+        #thousand-cube-slider {
+            background: linear-gradient(0deg, rgba(var(--color-thousands-rgb), 0.3), rgba(var(--color-thousands-rgb), 0.8));
+        }
+
+        #thousand-row-slider {
+            background: linear-gradient(0deg, rgba(var(--color-ten-thousands-rgb), 0.3), rgba(var(--color-ten-thousands-rgb), 0.8));
+        }
+
+        #thousand-level-slider {
+            background: linear-gradient(0deg, rgba(var(--color-hundred-thousands-rgb), 0.3), rgba(var(--color-hundred-thousands-rgb), 0.8));
+        }
+
+        #saturation-slider {
+            background: linear-gradient(90deg, #888, #fff);
+        }
+
+        /* Color-coded slider thumbs */
+        #single-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-units);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #row-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-tens);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #level-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-hundreds);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #thousand-cube-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-thousands);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #thousand-row-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-ten-thousands);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #thousand-level-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--color-hundred-thousands);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        #saturation-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ff5555, #0077ff);
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.8);
+        }
+
+        .slider::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            transition: transform 0.2s;
+        }
+
+        /* The six main structure sliders (Units up to 100K-Levels), laid out as
+           a row of vertical faders, each with its own colored digit readout on
+           top - the color-plus-number readout takes over from the old color-key
+           legend, so no separate legend is needed. */
+        .ms-sliders-row {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            flex-wrap: nowrap;
+            gap: 4px;
+            margin-bottom: 15px;
+        }
+
+        .ms-slider-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 0;
+            flex: 1 1 0;
+            min-width: 0; /* let the column shrink below its label's natural width,
+                             so the label wraps instead of forcing all 6 wider than
+                             the sidebar and onto a second row */
+        }
+
+        .ms-slider-name {
+            font-size: 0.62rem;
+            color: #ccc;
+            text-align: center;
+            white-space: normal;
+            line-height: 1.15;
+            max-width: 100%;
+        }
+
+        /* The colored digit readout on top of each slider - sized up well past
+           the ordinary .slider-value so it reads at a glance. */
+        .ms-slider-col .slider-value {
+            font-size: 1.6rem;
+            line-height: 1;
+        }
+
+        .ms-value-units { color: var(--color-units); }
+        .ms-value-tens { color: var(--color-tens); }
+        .ms-value-hundreds { color: var(--color-hundreds); }
+        .ms-value-thousands { color: var(--color-thousands); }
+        .ms-value-ten-thousands { color: var(--color-ten-thousands); }
+        .ms-value-hundred-thousands { color: var(--color-hundred-thousands); }
+
+        /* Vertical range input, same technique as .uth-slider below: writing-mode
+           is the modern, standards-based way to orient a <input type="range">
+           top-to-bottom; -webkit-appearance: slider-vertical is kept alongside
+           it as a fallback for older WebKit builds. */
+        input.ms-slider {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            -webkit-appearance: slider-vertical;
+            appearance: none;
+            width: 10px;
+            height: 130px;
+            border-radius: 6px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* Color-coded track per place value, same idea as .uth-slider below -
+           without these the track is fully transparent (only the thumb shows),
+           which is exactly backwards for a control whose whole point is to be
+           read by color. */
+        input.ms-slider.ms-units { background: linear-gradient(0deg, rgba(var(--color-units-rgb), 0.3), rgba(var(--color-units-rgb), 0.8)); }
+        input.ms-slider.ms-tens { background: linear-gradient(0deg, rgba(var(--color-tens-rgb), 0.3), rgba(var(--color-tens-rgb), 0.8)); }
+        input.ms-slider.ms-hundreds { background: linear-gradient(0deg, rgba(var(--color-hundreds-rgb), 0.3), rgba(var(--color-hundreds-rgb), 0.8)); }
+        input.ms-slider.ms-thousands { background: linear-gradient(0deg, rgba(var(--color-thousands-rgb), 0.3), rgba(var(--color-thousands-rgb), 0.8)); }
+        input.ms-slider.ms-ten-thousands { background: linear-gradient(0deg, rgba(var(--color-ten-thousands-rgb), 0.3), rgba(var(--color-ten-thousands-rgb), 0.8)); }
+        input.ms-slider.ms-hundred-thousands { background: linear-gradient(0deg, rgba(var(--color-hundred-thousands-rgb), 0.3), rgba(var(--color-hundred-thousands-rgb), 0.8)); }
+
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-reset {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        .btn-reset:hover {
+            transform: translateY(-2px);
+        }
+        
+        .btn-export {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        .btn-export:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .info-btn {
+            position: absolute;
+            top: 50%;
+            right: 16px;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic;
+            font-weight: bold;
+            font-size: 1rem;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .info-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-box {
+            position: relative;
+            background: #1e1e2e;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px;
+            padding: 24px;
+            max-width: 420px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-box h2 {
+            margin-top: 0;
+            margin-bottom: 12px;
+        }
+
+        .modal-box h3 {
+            margin-bottom: 4px;
+            font-size: 0.95rem;
+        }
+
+        .modal-box p {
+            margin-top: 0;
+            margin-bottom: 14px;
+            color: #ccc;
+            font-size: 0.9rem;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: #ccc;
+            font-size: 1.4rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+
+        .modal-close:hover {
+            color: #fff;
+        }
+
+        .practice-panel {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            margin-top: 15px;
+            border: 1px solid rgba(100, 100, 255, 0.15);
+        }
+
+        /* The practice panel's own instructions trigger - see the header's
+           .info-btn for the shared styling this mirrors at a smaller size,
+           and #practice-info-btn's click handler for what it opens. */
+        .info-pill {
+            display: block;
+            margin: 0 0 8px auto;
+            padding: 2px 10px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            background: rgba(255, 255, 255, 0.08);
+            color: #ccc;
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .info-pill:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Correct/incorrect verdict, shown once the guess is checked and left
+           up during the demo that follows so it stays comparable. */
+        .quiz-feedback {
+            font-size: 0.8rem;
+            line-height: 1.4;
+            border-radius: 4px;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+
+        .quiz-feedback.quiz-correct {
+            background: rgba(0, 170, 0, 0.18);
+            color: #b6ffb6;
+        }
+
+        .quiz-feedback.quiz-incorrect {
+            background: rgba(255, 85, 85, 0.18);
+            color: #ffd0d0;
+        }
+
+        /* Place Value quiz mode's target banner + check button, shown above
+           the six main-structure sliders while #pv-quiz-btn is armed - see
+           togglePvQuizMode()/renderPvQuizBanner() in the script. */
+        .pv-quiz-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            background: rgba(150, 100, 255, 0.14);
+            border: 1px solid rgba(150, 100, 255, 0.4);
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+
+        .pv-quiz-banner strong {
+            color: #c9a7ff;
+            font-size: 1.1rem;
+        }
+
+        .pv-quiz-check-btn {
+            flex: 0 0 auto;
+            border: 1px solid rgba(150, 100, 255, 0.5);
+            background: #9a6bff;
+            color: #1a1030;
+            font-weight: bold;
+            border-radius: 5px;
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+
+        .pv-quiz-check-btn:hover {
+            background: #ad84ff;
+        }
+
+        .op-icon-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.08);
+            color: #ccc;
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .op-icon-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.18);
+        }
+
+        .op-icon-btn:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+
+        .op-icon-quiz { color: #c9a7ff; border-color: rgba(150, 100, 255, 0.4); font-size: 0.6rem; font-weight: bold; letter-spacing: 0.02em; }
+        /* A solid fill + glow (rather than a faint 30%-opacity tint, which read
+           as "doesn't seem to be working" against this dark background) so the
+           on/off state is unmistakable at a glance. */
+        .op-icon-quiz.active {
+            background: #9a6bff;
+            border-color: #d7c2ff;
+            color: #1a1030;
+            box-shadow: 0 0 10px rgba(170, 120, 255, 0.8);
+        }
+
+        .btn-add {
+            background: rgba(0, 170, 0, 0.25);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-add:hover:not(:disabled) {
+            background: rgba(0, 170, 0, 0.4);
+        }
+
+        .btn-subtract {
+            background: rgba(255, 85, 85, 0.25);
+            color: white;
+            flex: 1;
+        }
+
+        .btn-subtract:hover:not(:disabled) {
+            background: rgba(255, 85, 85, 0.4);
+        }
+
+        .btn-stop {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .practice-pile-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.7rem;
+            color: #888;
+            margin-bottom: 6px;
+        }
+
+        .practice-pile-labels span:first-child { color: #6bb8ff; }
+        .practice-pile-labels span:last-child { color: #ff9f6b; }
+
+        .practice-caption {
+            font-size: 0.8rem;
+            color: #ddd;
+            line-height: 1.4;
+            min-height: 2.8em;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            padding: 8px;
+        }
+
+        /* The Add & Subtract equation itself, overlaid on the 3D canvas
+           (top-right corner - see its markup inside .canvas-container) rather
+           than sitting in the sidebar. This IS the input surface now (see
+           renderNumeralPanel()/renderNumeralPanelPreview()/
+           renderNumeralPanelGuess() and updateNumeralPanelInteractivity() in
+           the script) - A, B, the operator and (in quiz mode) the guess are
+           all entered right here - so it's sized up well past a passive
+           readout, and pointer-events is auto rather than none: this corner
+           of the canvas is a real control now, not just a label drawn over
+           OrbitControls. */
+        .practice-numeral-panel {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            z-index: 5;
+            pointer-events: auto;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 2.3rem;
+            background: rgba(10, 10, 26, 0.55);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 8px;
+            padding: 10px 16px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+        }
+
+        .numeral-row {
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-end;
+            gap: 3px;
+        }
+
+        /* The three interactive "op" slots (one per row - cancel/operator/go),
+           each reusing the same width as the operator column always did.
+           Buttons rather than spans now, since all three are clickable. */
+        button.numeral-op {
+            width: 1.2em;
+            min-width: 1.2em;
+            display: inline-flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            align-items: center;
+            text-align: center;
+            color: #888;
+            background: none;
+            border: none;
+            padding: 0 0 0.05em;
+            font: inherit;
+            font-size: 0.85em;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+
+        button.numeral-op:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        button.numeral-op:disabled {
+            cursor: default;
+        }
+
+        /* + / - toggle: bright enough to read as clickable, distinct from the
+           dimmer go/cancel buttons since it's the one always available while
+           editing. */
+        .numeral-operator-btn {
+            color: #ddd;
+            font-weight: bold;
+        }
+
+        .numeral-operator-btn:disabled {
+            color: #666;
+        }
+
+        /* Go/Check button - "=" to run the demo, a checkmark to grade a
+           pending quiz guess. Accent color makes it read as the "submit"
+           action, distinct from the plain operator toggle. */
+        .numeral-go-btn {
+            color: #7CFC9A;
+            font-weight: bold;
+        }
+
+        /* Cancel/"change numbers" button - only ever visible while a quiz
+           guess is pending (see updateNumeralPanelInteractivity()); otherwise
+           this slot (operand A never has a leading symbol in written
+           arithmetic) just holds its column's width. */
+        .numeral-cancel-btn {
+            color: #ff8080;
+            visibility: hidden;
+        }
+
+        /* Demo playback pills - "<" (step back), "> " (next step) and ">>"
+           (play all steps), shown below the equation only while a demo is
+           actually running (see enterPracticeMode()/exitPracticeMode()).
+           Replaces the old sidebar Next Step/Play buttons. */
+        .numeral-playback-row {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .numeral-playback-btn {
+            min-width: 2.2em;
+            padding: 0.15em 0.6em;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            background: rgba(255, 255, 255, 0.08);
+            color: #ddd;
+            font: inherit;
+            font-size: 0.55em;
+            font-weight: bold;
+            letter-spacing: 0.05em;
+            cursor: pointer;
+        }
+
+        .numeral-playback-btn:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .numeral-playback-btn:disabled {
+            opacity: 0.35;
+            cursor: default;
+        }
+
+        /* ">>" (play all steps) glows solid while auto-play is running - the
+           same on/off treatment op-icon-quiz.active uses, so "this is on"
+           reads the same way across the app. */
+        .numeral-playback-btn.active {
+            background: #4ecdc4;
+            border-color: #a8f0ea;
+            color: #04302c;
+            box-shadow: 0 0 10px rgba(78, 205, 196, 0.7);
+        }
+
+        .numeral-digit {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: center;
+            width: 1.3ch;
+            min-width: 0; /* let the flex row actually shrink to this - a bare
+                              text input's intrinsic content size otherwise
+                              wins and blows this column out to ~20 characters
+                              wide */
+            text-align: center;
+            border-radius: 4px;
+            transition: background 0.2s ease;
+            position: relative;
+        }
+
+        /* A subtraction result that's gone below zero (pile A ran out and
+           the rest is shown as hollow "owed" spheres - see
+           state.pileADeficit in the script) gets a minus sign in front of
+           the result row's hundreds digit. Absolutely positioned so it
+           doesn't take up flex layout space and shift the digit columns
+           out of alignment with the rows above. */
+        #numeral-result.numeral-negative .digit-hundreds::before {
+            content: '\2212';
+           
