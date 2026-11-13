@@ -3447,6 +3447,7 @@
                 camera.aspect = width / height;
                 camera.updateProjectionMatrix();
                 renderer.setSize(width, height);
+                if (window.MathGridZoom && window.MathGridZoom.active) return; // Zoom view frames itself
 
                 // The fit distance depends on camera.aspect (see computeFitFraming), so
                 // a narrower/shorter viewport - a phone, an orientation change, the
@@ -4576,6 +4577,7 @@
                 }
                 const slider = document.getElementById('single-slider');
                 if (slider) slider.title = shapeText('Units: 0-9 spheres');
+                if (window.MathGridZoom) window.MathGridZoom.refresh();
             }
 
             let practicePlaceholderShape = null;
@@ -5299,6 +5301,7 @@
             // Add & Subtract demo. A no-op if `mode` is already current.
             function switchMode(mode) {
                 if (mode === currentMode) return;
+                if (window.MathGridZoom) window.MathGridZoom.beforeMode(mode); // leaving Place Value closes the Zoom view
 
                 // Leaving the Add & Subtract tab entirely: stop any running demo
                 // and hide both piles - main-structure-controls/practice-panel
@@ -6167,7 +6170,9 @@
             function animate() {
                 requestAnimationFrame(animate);
                 updatePileLabelSprites();
-                stepAutoZoom();
+                // The Zoom view (zoom.js) moves the camera itself while it is open.
+                if (window.MathGridZoom && window.MathGridZoom.active) window.MathGridZoom.tick(performance.now());
+                else stepAutoZoom();
                 stepMerge();
                 controls.update();
                 renderer.render(scene, camera);
@@ -6715,6 +6720,33 @@
             initControls();
             try {
                 init();
+                // The Zoom view (Powers of 10) lives in zoom.js; these are the only
+                // parts of this file it uses. It never changes Build's own settings.
+                if (window.MathGridZoom) window.MathGridZoom.attach({
+                    scene: scene, camera: camera, controls: controls, renderer: renderer,
+                    placeHex: PLACE_BASE_COLOR_HEX,
+                    color: function(hex) { return adjustedSphereColor(hex); },
+                    shape: function() { return shapeMode; },
+                    getMode: function() { return currentMode; },
+                    hideBuild: function() {
+                        if (pvQuizModeEnabled) togglePvQuizMode();
+                        cancelMerge();
+                        autoZoomActive = false;
+                        coloredSphereGroup.visible = false;
+                        transparentSphereGroup.visible = false;
+                        gridHelpers.forEach(function(h) { h.visible = false; });
+                    },
+                    showBuild: function() {
+                        coloredSphereGroup.visible = true;
+                        transparentSphereGroup.visible = true;
+                        gridHelpers.forEach(function(h) { h.visible = true; });
+                        camera.fov = DEFAULT_CAMERA_FOV;
+                        camera.updateProjectionMatrix();
+                        controls.maxDistance = nineMode ? 12000 : 1000;
+                        updateColoredSpheres();
+                        snapCameraToFitStructure();
+                    }
+                });
             } catch (err) {
                 console.error('MathGrid failed to start its 3D view:', err);
                 const caption = document.getElementById('operation-caption');
@@ -6727,6 +6759,8 @@
             }
         });
     </script>
+    <!-- Zoom view (Powers of 10) inside Place Value -->
+    <script src="zoom.js"></script>
 </body>
 </html>
 
